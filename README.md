@@ -4,9 +4,9 @@ A simple on-prem candidate search & recruitment portal. Runs entirely on your in
 
 ### Stack
 - Backend: Node.js + Express (TypeScript)
-- Frontend: React + Vite
+- Frontend: React + Vite (static build)
 - Database: MySQL 8
-- Containerization: Dockerfiles + docker-compose (optional)
+- Web server: nginx or Apache (your choice)
 
 ### Features (initial)
 - JWT auth and role placeholders (Admin, Recruiter, Candidate)
@@ -16,89 +16,108 @@ A simple on-prem candidate search & recruitment portal. Runs entirely on your in
 
 ---
 
-## 1) Prerequisites
-- Ubuntu LTS
+## 1) Prerequisites (Ubuntu LTS)
 - Node.js 20+ and npm
 - MySQL 8+
-- nginx (for serving frontend) or use Docker
+- nginx or Apache2
+- systemd
 
 ## 2) Database setup
-Run:
 ```bash
 mysql -uroot -p < db/schema.sql
 mysql -uroot -p < db/seed.sql
 ```
-Or use docker-compose which auto-initializes with these files.
-
-## 3) Configuration
-Copy env examples and adjust values:
-```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+Create DB user and grant permissions if needed:
+```sql
+CREATE USER IF NOT EXISTS 'recruitment_user'@'localhost' IDENTIFIED BY 'recruitment_pass';
+GRANT ALL PRIVILEGES ON recruitment_portal.* TO 'recruitment_user'@'localhost';
+FLUSH PRIVILEGES;
 ```
-Important keys:
-- backend `.env`: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, `UPLOAD_DIR`
-- frontend `.env`: `VITE_API_BASE_URL` (e.g., `http://localhost:4000`)
 
-## 4) Manual install on Ubuntu
-Use the script:
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-What it does:
-- Installs Node.js 20, MySQL 8, nginx, PM2
-- Creates DB, user, imports schema and seed
-- Builds backend and frontend
-- Sets default passwords:
-  - admin@example.com / Admin@123
-  - recruiter@example.com / Recruiter@123
-  - candidate@example.com / Candidate@123
-- Runs backend via PM2 and serves frontend at `http://localhost/`
-
-## 5) Docker (recommended for quick start)
-```bash
-docker compose build
-docker compose up -d
-```
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:4000
-- MySQL: localhost:3306 (user: `recruitment_user`, pass: `recruitment_pass`)
-
-## 6) Development
-- Backend:
+## 3) Backend build
 ```bash
 cd backend
+cp .env.example .env
+# edit .env for DB credentials, JWT_SECRET, UPLOAD_DIR
 npm ci
-npm run dev
+npm run build
 ```
-- Frontend:
+Optionally set default passwords for seeded users (admin/recruiter/candidate) using bcrypt via Node REPL or script. Example:
+```bash
+node -e "const b=require('bcryptjs');console.log(b.hashSync('Admin@123',10));"
+# update users table with the hash for admin@example.com
+```
+
+## 4) Frontend build
 ```bash
 cd frontend
+cp .env.example .env
+# set VITE_API_BASE_URL (e.g., http://localhost:4000 or http://yourhost/api)
 npm ci
-npm run dev
+npm run build
+sudo mkdir -p /var/www/recruitment-portal-frontend
+sudo cp -r dist/* /var/www/recruitment-portal-frontend/
 ```
 
-## 7) NLP options (to be added)
-- Node-only pipeline (natural/compromise/wink-nlp)
-- Python microservice (spaCy) over localhost
-Switching will be controlled via backend env & a small adapter. Instructions will be added when services are committed.
+## 5) Run backend as a systemd service
+Install files to `/opt` and systemd unit:
+```bash
+sudo mkdir -p /opt/recruitment-portal
+sudo cp -r backend /opt/recruitment-portal/
+# ensure /opt/recruitment-portal/backend/dist exists from build
 
-## 8) Security & notes
-- All services are local-only by default
-- Change `JWT_SECRET` in production
-- Ensure `UPLOAD_DIR` has restricted permissions
-- Configure nginx/HTTPS via your certificate management
+sudo mkdir -p /var/lib/recruitment-portal/uploads
+sudo chown -R www-data:www-data /var/lib/recruitment-portal
 
-## 9) Next
-- Backend routes (auth, candidates CRUD, resumes upload, search/ranking)
-- Swagger/OpenAPI and Postman collection
-- Unit tests and E2E outline
+sudo cp deploy/recruitment-portal-api.service /etc/systemd/system/recruitment-portal-api.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now recruitment-portal-api
+sudo systemctl status recruitment-portal-api
+```
+Adjust environment values in the unit file as needed (DB creds, JWT secret, etc.).
+
+## 6A) nginx configuration
+```bash
+sudo cp deploy/nginx-site.conf /etc/nginx/sites-available/recruitment-portal
+sudo ln -sf /etc/nginx/sites-available/recruitment-portal /etc/nginx/sites-enabled/recruitment-portal
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+```
+- Frontend served at `http://yourhost/`
+- API proxied at `http://yourhost/api/*` to Node backend on `127.0.0.1:4000`
+
+## 6B) Apache configuration (alternative)
+Enable needed modules and site:
+```bash
+sudo a2enmod proxy proxy_http headers rewrite
+sudo cp deploy/apache-site.conf /etc/apache2/sites-available/recruitment-portal.conf
+sudo a2ensite recruitment-portal
+sudo systemctl reload apache2
+```
+- Frontend served from `/var/www/recruitment-portal-frontend`
+- API proxied at `/api/*` to `127.0.0.1:4000`
+
+## 7) Environment notes
+- backend `.env`: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `UPLOAD_DIR`
+- frontend `.env`: `VITE_API_BASE_URL` (use `/api` if fronted by web server proxy)
+
+## 8) Security
+- Change `JWT_SECRET` and user passwords
+- Lock down MySQL to local access where possible
+- Limit upload size and file types (handled in backend; ensure filesystem perms)
+- Configure HTTPS with your certs on nginx/Apache
+
+## 9) Troubleshooting
+- Backend logs: `journalctl -u recruitment-portal-api -f`
+- nginx: `sudo nginx -t && sudo tail -f /var/log/nginx/error.log`
+- Apache: `sudo tail -f /var/log/apache2/error.log`
+- DB connectivity: verify `.env` and MySQL grants
 
 ---
 
-### Paths of interest
-- Frontend: `frontend/` (entry: `index.html`, `src/main.tsx`, `src/App.tsx`)
-- Backend API: `backend/` (entry: `src/server.ts`)
-- Database: `db/schema.sql`, `db/seed.sql`
-- Deployment: `docker-compose.yml`, `setup.sh`, `deploy/nginx-frontend.conf`
+### Paths
+- Frontend build root: `/var/www/recruitment-portal-frontend`
+- Backend service root: `/opt/recruitment-portal/backend`
+- Uploads dir: `/var/lib/recruitment-portal/uploads`
+- Configs: `deploy/nginx-site.conf`, `deploy/apache-site.conf`, `deploy/recruitment-portal-api.service`
