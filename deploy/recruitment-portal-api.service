@@ -1,0 +1,30 @@
+[Unit]
+Description=Recruitment Portal Backend API
+After=network.target mysql.service
+
+[Service]
+Type=simple
+Environment=NODE_ENV=production
+Environment=PORT=4000
+Environment=DB_HOST=localhost
+Environment=DB_PORT=3306
+Environment=DB_NAME=recruitment_portal
+Environment=DB_USER=recruitment_user
+Environment=DB_PASSWORD=recruitment_pass
+Environment=DB_CONN_LIMIT=10
+Environment=JWT_SECRET=change_me
+Environment=JWT_EXPIRES_IN=1d
+Environment=UPLOAD_DIR=/var/lib/recruitment-portal/uploads
+Environment=MAX_UPLOAD_MB=10
+Environment=CORS_ORIGIN=http://localhost
+Environment=RATE_LIMIT_WINDOW_MS=60000
+Environment=RATE_LIMIT_MAX=100
+WorkingDirectory=/opt/recruitment-portal/backend
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
