@@ -3,6 +3,8 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { env } from './config/env.js';
 
 const app = express();
@@ -31,7 +33,19 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// TODO: mount routes here (auth, users, candidates, search, resumes)
+// Static frontend (serve built React app if present)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = path.resolve(__dirname, '../public');
+app.use(express.static(publicDir));
+
+// TODO: mount API routes here (prefix with /api)
+
+// SPA fallback (after API routes)
+app.get('*', (_req, res, next) => {
+  if (_req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
 
 // 404 handler
 app.use((_req, res) => {
